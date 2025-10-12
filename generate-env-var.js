@@ -14,18 +14,37 @@ try {
     const credentials = fs.readFileSync(credentialsPath, 'utf8');
     
     // Validate JSON
-    JSON.parse(credentials);
+    const credentialsObj = JSON.parse(credentials);
+    
+    // Minify JSON (remove extra whitespace)
+    const minified = JSON.stringify(credentialsObj);
+    
+    // Base64 encode as alternative
+    const base64 = Buffer.from(minified).toString('base64');
     
     console.log('✅ Valid credentials file found!\n');
-    console.log('Copy the following line to your .env file or deployment platform:\n');
-    console.log('─'.repeat(80));
-    console.log(`GOOGLE_SERVICE_ACCOUNT_KEY='${credentials.trim()}'`);
-    console.log('─'.repeat(80));
-    console.log('\n📝 Instructions:');
-    console.log('1. Copy the entire line above (including the quotes)');
-    console.log('2. Paste it into your deployment platform\'s environment variables');
-    console.log('3. Or add it to your .env file for local development');
-    console.log('\n⚠️  IMPORTANT: Never commit this to Git!');
+    console.log('╔═══════════════════════════════════════════════════════════════════════════════╗');
+    console.log('║ OPTION 1: Minified JSON (Recommended for Vercel)                             ║');
+    console.log('╚═══════════════════════════════════════════════════════════════════════════════╝');
+    console.log('Copy this value (WITHOUT quotes) to Vercel:\n');
+    console.log(minified);
+    console.log('\n' + '─'.repeat(80) + '\n');
+    
+    console.log('╔═══════════════════════════════════════════════════════════════════════════════╗');
+    console.log('║ OPTION 2: Base64 Encoded (Alternative)                                       ║');
+    console.log('╚═══════════════════════════════════════════════════════════════════════════════╝');
+    console.log('Copy this value (WITHOUT quotes) to Vercel as GOOGLE_SERVICE_ACCOUNT_KEY_BASE64:\n');
+    console.log(base64);
+    console.log('\n' + '─'.repeat(80) + '\n');
+    
+    console.log('📝 Instructions for Vercel:');
+    console.log('1. Go to your Vercel project settings');
+    console.log('2. Navigate to Environment Variables');
+    console.log('3. Add a new variable named: GOOGLE_SERVICE_ACCOUNT_KEY');
+    console.log('4. Paste the minified JSON (Option 1) as the value WITHOUT any quotes');
+    console.log('5. Click Save and redeploy');
+    console.log('\n⚠️  IMPORTANT: Do NOT wrap the value in quotes in Vercel!');
+    console.log('⚠️  IMPORTANT: Never commit credentials to Git!');
     
 } catch (error) {
     console.error('❌ Error reading credentials:', error.message);

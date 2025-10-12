@@ -16,8 +16,17 @@ class DriveDownloadService {
 
             // Option 1: Load from environment variable (for deployment)
             if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
-                credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
-                console.log('✅ Using Google Drive credentials from environment variable');
+                const credString = process.env.GOOGLE_SERVICE_ACCOUNT_KEY.trim();
+                console.log('📋 Credentials string length:', credString.length);
+                console.log('📋 First 50 chars:', credString.substring(0, 50));
+                
+                try {
+                    credentials = JSON.parse(credString);
+                    console.log('✅ Using Google Drive credentials from environment variable');
+                } catch (parseError) {
+                    console.error('❌ Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY:', parseError.message);
+                    throw new Error(`Invalid JSON in GOOGLE_SERVICE_ACCOUNT_KEY: ${parseError.message}`);
+                }
             } 
             // Option 2: Load from file (for local development)
             else {
