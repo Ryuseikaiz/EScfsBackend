@@ -361,10 +361,12 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Start server
-app.listen(PORT, () => {
-    console.log(`🚀 Server is running on port ${PORT}`);
-    console.log(`📝 API available at http://localhost:${PORT}/api`);
-});
+// Start server (only if not running in serverless environment)
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+    app.listen(PORT, () => {
+        console.log(`🚀 Server is running on port ${PORT}`);
+        console.log(`📝 API available at http://localhost:${PORT}/api`);
+    });
+}
 
 module.exports = app;

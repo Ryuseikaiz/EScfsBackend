@@ -78,14 +78,36 @@ IMGBB_API_KEY=29e9cca6843d1c80514c7c7b5a44896c
 2. **Variables Tab**: Add tất cả environment variables
 3. **Deploy**: Auto deploy khi push code
 
-### Option 3: Vercel (Serverless)
+### Option 3: Vercel (Serverless) ⚠️
+
+**LƯU Ý**: Vercel có giới hạn:
+- Timeout: 60s (Hobby plan), 300s (Pro plan)
+- Cold start có thể chậm
+- Không tốt cho long-running tasks
+
+**Cách deploy**:
 
 ```bash
+# Install Vercel CLI
 npm i -g vercel
+
+# Deploy
 vercel
+
+# Hoặc deploy từ GitHub (khuyên dùng)
+# Import project vào Vercel Dashboard
 ```
 
-Sau đó add environment variables trong dashboard.
+**Set Environment Variables trong Vercel Dashboard**:
+1. Vào Project Settings → Environment Variables
+2. Add tất cả variables từ section "Required Environment Variables" ở trên
+3. **Quan trọng**: Paste toàn bộ JSON vào `GOOGLE_SERVICE_ACCOUNT_KEY`
+
+**Vercel Configuration**: Project đã có `vercel.json` với cấu hình serverless
+
+**API Endpoint sau khi deploy**: `https://your-project.vercel.app/api/*`
+
+**Khuyến nghị**: Sử dụng **Render.com** hoặc **Railway** thay vì Vercel cho backend Express nếu có nhiều API calls hoặc cần uptime cao.
 
 ### Option 4: Heroku
 

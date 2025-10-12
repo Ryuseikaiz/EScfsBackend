@@ -1,0 +1,11 @@
+node_modules
+.env
+google-credentials.json
+credentials.json
+*.log
+test-*.js
+test-*.html
+.git
+.gitignore
+README.md
+DEPLOYMENT.md
