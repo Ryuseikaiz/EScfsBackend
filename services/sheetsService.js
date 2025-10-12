@@ -14,23 +14,33 @@ class SheetsService {
 
     async initialize() {
         try {
-            // Load credentials from environment or file
-            const credentialsPath = process.env.GOOGLE_CREDENTIALS_PATH || 
-                                   path.join(__dirname, '../google-credentials.json');
+            let credentials;
 
-            if (fs.existsSync(credentialsPath)) {
-                const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
-                
-                this.auth = new google.auth.GoogleAuth({
-                    credentials: credentials,
-                    scopes: ['https://www.googleapis.com/auth/spreadsheets']
-                });
+            // Option 1: Load from environment variable (for deployment)
+            if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
+                credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
+                console.log('✅ Using Google credentials from environment variable');
+            } 
+            // Option 2: Load from file (for local development)
+            else {
+                const credentialsPath = process.env.GOOGLE_CREDENTIALS_PATH || 
+                                       path.join(__dirname, '../google-credentials.json');
 
-                this.sheets = google.sheets({ version: 'v4', auth: this.auth });
-                console.log('✅ Google Sheets API initialized');
-            } else {
-                console.warn('⚠️ Warning: Google credentials file not found');
+                if (fs.existsSync(credentialsPath)) {
+                    credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
+                    console.log('✅ Using Google credentials from file');
+                } else {
+                    throw new Error('Google credentials not found. Please set GOOGLE_SERVICE_ACCOUNT_KEY environment variable or provide credentials file.');
+                }
             }
+            
+            this.auth = new google.auth.GoogleAuth({
+                credentials: credentials,
+                scopes: ['https://www.googleapis.com/auth/spreadsheets']
+            });
+
+            this.sheets = google.sheets({ version: 'v4', auth: this.auth });
+            console.log('✅ Google Sheets API initialized');
         } catch (error) {
             console.error('Error initializing Google Sheets:', error);
         }

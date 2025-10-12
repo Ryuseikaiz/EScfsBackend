@@ -12,19 +12,32 @@ class DriveDownloadService {
 
     async initialize() {
         try {
-            const credentialsPath = process.env.GOOGLE_CREDENTIALS_PATH || './google-credentials.json';
-            
-            if (fs.existsSync(credentialsPath)) {
-                const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
-                
-                this.auth = new google.auth.GoogleAuth({
-                    credentials: credentials,
-                    scopes: ['https://www.googleapis.com/auth/drive.readonly']
-                });
+            let credentials;
 
-                this.drive = google.drive({ version: 'v3', auth: this.auth });
-                console.log('✅ Google Drive Download Service initialized');
+            // Option 1: Load from environment variable (for deployment)
+            if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
+                credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
+                console.log('✅ Using Google Drive credentials from environment variable');
+            } 
+            // Option 2: Load from file (for local development)
+            else {
+                const credentialsPath = process.env.GOOGLE_CREDENTIALS_PATH || './google-credentials.json';
+                
+                if (fs.existsSync(credentialsPath)) {
+                    credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
+                    console.log('✅ Using Google Drive credentials from file');
+                } else {
+                    throw new Error('Google Drive credentials not found. Please set GOOGLE_SERVICE_ACCOUNT_KEY environment variable or provide credentials file.');
+                }
             }
+            
+            this.auth = new google.auth.GoogleAuth({
+                credentials: credentials,
+                scopes: ['https://www.googleapis.com/auth/drive.readonly']
+            });
+
+            this.drive = google.drive({ version: 'v3', auth: this.auth });
+            console.log('✅ Google Drive Download Service initialized');
         } catch (error) {
             console.error('Error initializing Drive Download Service:', error);
         }
