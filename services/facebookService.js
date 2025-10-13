@@ -36,7 +36,7 @@ class FacebookService {
                 const url = nextPageUrl || `${this.baseURL}/${this.pageId}/posts`;
                 const params = nextPageUrl ? {} : {
                     access_token: this.pageAccessToken,
-                    fields: 'id,message,created_time,full_picture,attachments,reactions.summary(true),comments.summary(true)',
+                    fields: 'id,message,created_time,full_picture,attachments{media,subattachments{media}},reactions.summary(true),comments.summary(true)',
                     limit: 100 // Max per request
                 };
 
@@ -48,13 +48,38 @@ class FacebookService {
                     const esIdMatch = message.match(/#ES_(\d+)/);
                     const esId = esIdMatch ? esIdMatch[1] : null;
 
+                    // Extract all images from attachments
+                    let images = [];
+                    if (post.attachments && post.attachments.data && post.attachments.data.length > 0) {
+                        const mainAttachment = post.attachments.data[0];
+                        
+                        // Check if there are subattachments (multiple images)
+                        if (mainAttachment.subattachments && mainAttachment.subattachments.data) {
+                            images = mainAttachment.subattachments.data
+                                .filter(sub => sub.media && sub.media.image && sub.media.image.src)
+                                .map(sub => sub.media.image.src);
+                        } 
+                        // Single image attachment
+                        else if (mainAttachment.media && mainAttachment.media.image && mainAttachment.media.image.src) {
+                            images = [mainAttachment.media.image.src];
+                        }
+                        // Fallback to full_picture if no media in attachments
+                        else if (post.full_picture) {
+                            images = [post.full_picture];
+                        }
+                    } else if (post.full_picture) {
+                        // No attachments but has full_picture
+                        images = [post.full_picture];
+                    }
+
                     return {
                         id: post.id,
                         esId: esId,
                         fullId: esId ? `#ES_${esId}` : null,
                         content: message,
                         createdTime: post.created_time,
-                        image: post.full_picture || null,
+                        image: images[0] || null, // Keep for backward compatibility
+                        images: images, // Array of all images
                         attachments: post.attachments,
                         reactionCount: post.reactions?.summary?.total_count || 0,
                         commentCount: post.comments?.summary?.total_count || 0
