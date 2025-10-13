@@ -353,6 +353,125 @@ app.post('/api/admin/approve/:id', authenticateToken, async (req, res) => {
     }
 });
 
+// Bulk approve all pending confessions with filters
+app.post('/api/admin/approve-all', authenticateToken, async (req, res) => {
+    try {
+        const { sourceFilter, statusFilter } = req.body; // 'all', 'website', 'google_sheets' and status
+        
+        let websiteConfessions = [];
+        let sheetsConfessions = [];
+
+        // Get confessions based on filter
+        if (!sourceFilter || sourceFilter === 'all' || sourceFilter === 'website') {
+            websiteConfessions = await databaseService.getAllConfessions();
+            websiteConfessions = websiteConfessions.filter(c => c.status === 'pending');
+        }
+
+        if (!sourceFilter || sourceFilter === 'all' || sourceFilter === 'google_sheets') {
+            sheetsConfessions = await sheetsService.getPendingConfessions();
+            sheetsConfessions = sheetsConfessions.filter(c => !c.status || c.status === 'pending');
+        }
+
+        const allPendingConfessions = [
+            ...websiteConfessions.map(c => ({ ...c, sourceType: 'website' })),
+            ...sheetsConfessions.map(c => ({ ...c, sourceType: 'google_sheets' }))
+        ];
+
+        if (allPendingConfessions.length === 0) {
+            return res.json({ 
+                message: 'No pending confessions to approve',
+                successCount: 0,
+                failCount: 0,
+                total: 0
+            });
+        }
+
+        let successCount = 0;
+        let failCount = 0;
+        const results = [];
+
+        // Get starting ES ID
+        const dbLatestId = await databaseService.getLatestESId();
+        const sheetsLatestId = await sheetsService.getNextESId();
+        const fbLatestId = await facebookService.getLatestESId();
+        let esId = Math.max(dbLatestId, sheetsLatestId, fbLatestId) + 1;
+
+        // Process each confession
+        for (const confession of allPendingConfessions) {
+            try {
+                // Reset ES ID if exceeds 9999
+                if (esId > 9999) {
+                    esId = 0;
+                }
+
+                // Handle images
+                let fbImageUrl = null;
+                if (confession.sourceType === 'google_sheets' && (confession.driveLink || (confession.images && confession.images.length > 0))) {
+                    try {
+                        const driveUrls = confession.images || [confession.driveLink];
+                        const downloadedFiles = await driveDownloadService.downloadMultipleImages(driveUrls);
+                        
+                        if (downloadedFiles.length > 0) {
+                            const imgbbUrls = await imgbbService.uploadMultipleImages(downloadedFiles);
+                            fbImageUrl = imgbbUrls[0];
+                        }
+                    } catch (conversionError) {
+                        console.error(`⚠️ Failed to convert images for confession ${confession.id}:`, conversionError.message);
+                    }
+                } else if (confession.sourceType === 'website' && confession.images && confession.images.length > 0) {
+                    fbImageUrl = confession.images[0];
+                }
+
+                // Post to Facebook
+                const fbPost = await facebookService.postConfession(
+                    esId, 
+                    confession.content, 
+                    fbImageUrl
+                );
+
+                // Update status
+                if (confession.sourceType === 'website') {
+                    await databaseService.updateConfessionStatus(confession.id, 'approved', esId, fbPost.id, req.user.username);
+                } else {
+                    await sheetsService.updateConfessionStatus(confession.id, 'approved', esId, fbPost.id);
+                }
+
+                results.push({
+                    id: confession.id,
+                    esId: `#ES_${esId}`,
+                    success: true
+                });
+
+                successCount++;
+                esId++; // Increment for next confession
+
+                // Small delay to avoid rate limiting
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+            } catch (error) {
+                console.error(`Error approving confession ${confession.id}:`, error);
+                results.push({
+                    id: confession.id,
+                    success: false,
+                    error: error.message
+                });
+                failCount++;
+            }
+        }
+
+        res.json({ 
+            message: `Approved ${successCount} confessions`,
+            successCount,
+            failCount,
+            total: allPendingConfessions.length,
+            results
+        });
+    } catch (error) {
+        console.error('Error in bulk approve:', error);
+        res.status(500).json({ error: 'Failed to approve confessions' });
+    }
+});
+
 // Delete/Reject confession
 app.delete('/api/admin/delete/:id', authenticateToken, async (req, res) => {
     try {
