@@ -66,9 +66,12 @@ const authenticateToken = (req, res, next) => {
 // Get published confessions from Facebook (with pagination)
 app.get('/api/confessions', async (req, res) => {
     try {
-        // Facebook API max limit is 100
-        const limit = Math.min(parseInt(req.query.limit) || 100, 100);
+        // Allow up to 500 posts (will make multiple API calls)
+        const limit = Math.min(parseInt(req.query.limit) || 500, 500);
+        console.log(`📥 API request for ${limit} confessions`);
+        
         const posts = await facebookService.getPublishedPosts(limit);
+        
         res.json({
             confessions: posts,
             total: posts.length,

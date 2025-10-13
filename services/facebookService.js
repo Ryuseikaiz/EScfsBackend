@@ -13,45 +13,77 @@ class FacebookService {
     }
 
     /**
-     * Get published posts from Facebook page
+     * Get published posts from Facebook page with pagination
+     * Uses cursor-based pagination to bypass 100 posts limit
      */
-    async getPublishedPosts(limit = 20) {
+    async getPublishedPosts(maxLimit = 500) {
         try {
             if (!this.pageAccessToken || !this.pageId) {
                 throw new Error('Facebook credentials not configured');
             }
 
-            // Facebook API limit is max 100 per request
-            const requestLimit = Math.min(limit, 100);
+            let allPosts = [];
+            let nextPageUrl = null;
+            let requestCount = 0;
+            const maxRequests = Math.ceil(maxLimit / 100); // Maximum number of API calls
 
-            const response = await axios.get(`${this.baseURL}/${this.pageId}/posts`, {
-                params: {
+            console.log(`📥 Fetching up to ${maxLimit} posts from Facebook...`);
+
+            do {
+                requestCount++;
+                console.log(`📄 Request ${requestCount}/${maxRequests}...`);
+
+                const url = nextPageUrl || `${this.baseURL}/${this.pageId}/posts`;
+                const params = nextPageUrl ? {} : {
                     access_token: this.pageAccessToken,
                     fields: 'id,message,created_time,full_picture,attachments,reactions.summary(true),comments.summary(true)',
-                    limit: requestLimit
-                }
-            });
-
-            // Format posts to extract ES_ID and content
-            const posts = response.data.data.map(post => {
-                const message = post.message || '';
-                const esIdMatch = message.match(/#ES_(\d+)/);
-                const esId = esIdMatch ? esIdMatch[1] : null;
-
-                return {
-                    id: post.id,
-                    esId: esId,
-                    fullId: esId ? `#ES_${esId}` : null,
-                    content: message,
-                    createdTime: post.created_time,
-                    image: post.full_picture || null,
-                    attachments: post.attachments,
-                    reactionCount: post.reactions?.summary?.total_count || 0,
-                    commentCount: post.comments?.summary?.total_count || 0
+                    limit: 100 // Max per request
                 };
-            });
 
-            return posts;
+                const response = await axios.get(url, { params });
+
+                // Format posts to extract ES_ID and content
+                const posts = response.data.data.map(post => {
+                    const message = post.message || '';
+                    const esIdMatch = message.match(/#ES_(\d+)/);
+                    const esId = esIdMatch ? esIdMatch[1] : null;
+
+                    return {
+                        id: post.id,
+                        esId: esId,
+                        fullId: esId ? `#ES_${esId}` : null,
+                        content: message,
+                        createdTime: post.created_time,
+                        image: post.full_picture || null,
+                        attachments: post.attachments,
+                        reactionCount: post.reactions?.summary?.total_count || 0,
+                        commentCount: post.comments?.summary?.total_count || 0
+                    };
+                });
+
+                allPosts = allPosts.concat(posts);
+                console.log(`✅ Fetched ${posts.length} posts (Total: ${allPosts.length})`);
+
+                // Check if there's a next page
+                nextPageUrl = response.data.paging?.next || null;
+
+                // Stop if we've reached the desired limit or max requests
+                if (allPosts.length >= maxLimit || requestCount >= maxRequests) {
+                    break;
+                }
+
+                // Add a small delay to avoid rate limiting
+                if (nextPageUrl) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+
+            } while (nextPageUrl && requestCount < maxRequests);
+
+            // Trim to exact limit if needed
+            const finalPosts = allPosts.slice(0, maxLimit);
+            console.log(`🎉 Successfully fetched ${finalPosts.length} posts`);
+
+            return finalPosts;
         } catch (error) {
             console.error('Error fetching Facebook posts:', error.response?.data || error.message);
             throw error;
