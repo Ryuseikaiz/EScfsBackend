@@ -61,25 +61,71 @@ const authenticateToken = (req, res, next) => {
     });
 };
 
+// ==================== CACHING ====================
+let cachedConfessions = null;
+let lastFetchTime = 0;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
 // ==================== PUBLIC ROUTES ====================
 
-// Get published confessions from Facebook (with pagination)
+// Get published confessions from Facebook (with caching)
 app.get('/api/confessions', async (req, res) => {
     try {
-        // Allow up to 500 posts (will make multiple API calls)
         const limit = Math.min(parseInt(req.query.limit) || 500, 500);
-        console.log(`📥 API request for ${limit} confessions`);
+        const now = Date.now();
+        const cacheAge = now - lastFetchTime;
         
+        // Return cached data if fresh and sufficient
+        if (cachedConfessions && cacheAge < CACHE_DURATION && cachedConfessions.length >= limit) {
+            console.log(`📦 Returning cached confessions (${cachedConfessions.length} posts, cache age: ${Math.floor(cacheAge / 1000)}s)`);
+            const posts = cachedConfessions.slice(0, limit);
+            return res.json({
+                confessions: posts,
+                total: posts.length,
+                limit: limit,
+                cached: true,
+                cacheAge: Math.floor(cacheAge / 1000)
+            });
+        }
+        
+        // Fetch fresh data
+        console.log(`📥 API request for ${limit} confessions (fetching from Facebook...)`);
         const posts = await facebookService.getPublishedPosts(limit);
+        
+        // Update cache
+        cachedConfessions = posts;
+        lastFetchTime = now;
+        console.log(`✅ Cached ${posts.length} confessions`);
         
         res.json({
             confessions: posts,
             total: posts.length,
-            limit: limit
+            limit: limit,
+            cached: false
         });
     } catch (error) {
         console.error('Error fetching confessions:', error);
         res.status(500).json({ error: 'Failed to fetch confessions' });
+    }
+});
+
+// Force refresh cache (can be called by admin or cron job)
+app.post('/api/confessions/refresh-cache', async (req, res) => {
+    try {
+        console.log('🔄 Manually refreshing confession cache...');
+        const posts = await facebookService.getPublishedPosts(500);
+        cachedConfessions = posts;
+        lastFetchTime = Date.now();
+        console.log(`✅ Cache refreshed with ${posts.length} confessions`);
+        
+        res.json({
+            success: true,
+            message: 'Cache refreshed successfully',
+            totalConfessions: posts.length
+        });
+    } catch (error) {
+        console.error('Error refreshing cache:', error);
+        res.status(500).json({ error: 'Failed to refresh cache' });
     }
 });
 
