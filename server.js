@@ -474,7 +474,27 @@ app.post('/api/admin/approve-all', authenticateToken, async (req, res) => {
     }
 });
 
-// Delete/Reject confession
+// Reject confession (mark as rejected, not delete)
+app.post('/api/admin/reject/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { sourceType } = req.body; // 'website' or 'google_sheets'
+        
+        // Mark as rejected in appropriate source
+        if (sourceType === 'website') {
+            await databaseService.updateConfessionStatus(id, 'rejected', null, null, req.user.username);
+        } else {
+            await sheetsService.updateConfessionStatus(id, 'rejected', null, null, false);
+        }
+
+        res.json({ message: 'Confession rejected successfully' });
+    } catch (error) {
+        console.error('Error rejecting confession:', error);
+        res.status(500).json({ error: 'Failed to reject confession' });
+    }
+});
+
+// Delete/Reject confession (permanently delete)
 app.delete('/api/admin/delete/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
@@ -491,6 +511,74 @@ app.delete('/api/admin/delete/:id', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Error deleting confession:', error);
         res.status(500).json({ error: 'Failed to delete confession' });
+    }
+});
+
+// Bulk delete confessions (for approved/rejected)
+app.post('/api/admin/delete-all', authenticateToken, async (req, res) => {
+    try {
+        const { sourceFilter, statusFilter } = req.body;
+        
+        // Only allow deleting approved or rejected confessions
+        if (statusFilter !== 'approved' && statusFilter !== 'rejected') {
+            return res.status(400).json({ error: 'Can only bulk delete approved or rejected confessions' });
+        }
+
+        let websiteConfessions = [];
+        let sheetsConfessions = [];
+
+        // Get confessions based on filter
+        if (!sourceFilter || sourceFilter === 'all' || sourceFilter === 'website') {
+            websiteConfessions = await databaseService.getAllConfessions();
+            websiteConfessions = websiteConfessions.filter(c => c.status === statusFilter);
+        }
+
+        if (!sourceFilter || sourceFilter === 'all' || sourceFilter === 'google_sheets') {
+            const allSheets = await sheetsService.getPendingConfessions();
+            // Note: Need to get ALL confessions including processed ones
+            // This will require updating sheetsService to fetch processed ones too
+        }
+
+        const confessionsToDelete = [
+            ...websiteConfessions.map(c => ({ ...c, sourceType: 'website' })),
+            ...sheetsConfessions.map(c => ({ ...c, sourceType: 'google_sheets' }))
+        ];
+
+        if (confessionsToDelete.length === 0) {
+            return res.json({
+                message: 'No confessions to delete',
+                successCount: 0,
+                failCount: 0,
+                total: 0
+            });
+        }
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const confession of confessionsToDelete) {
+            try {
+                if (confession.sourceType === 'website') {
+                    await databaseService.deleteConfession(confession.id);
+                } else {
+                    await sheetsService.deleteConfession(confession.id);
+                }
+                successCount++;
+            } catch (error) {
+                console.error(`Error deleting confession ${confession.id}:`, error);
+                failCount++;
+            }
+        }
+
+        res.json({
+            message: `Deleted ${successCount} confessions`,
+            successCount,
+            failCount,
+            total: confessionsToDelete.length
+        });
+    } catch (error) {
+        console.error('Error in bulk delete:', error);
+        res.status(500).json({ error: 'Failed to delete confessions' });
     }
 });
 

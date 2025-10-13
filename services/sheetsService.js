@@ -246,12 +246,65 @@ class SheetsService {
     }
 
     /**
-     * Get confession by ID
+     * Get confession by ID (search in ALL rows, not just pending)
      */
     async getConfessionById(id) {
         try {
+            // First try from pending confessions
             const confessions = await this.getPendingConfessions();
-            return confessions.find(c => c.id === id);
+            const found = confessions.find(c => c.id === id);
+            if (found) return found;
+            
+            // If not found in pending, search in all rows (for delete operations)
+            if (id.startsWith('form_')) {
+                const formResponse = await this.sheets.spreadsheets.values.get({
+                    spreadsheetId: this.spreadsheetId,
+                    range: "'Câu trả lời biểu mẫu 1'!A:E"
+                });
+
+                if (formResponse.data.values && formResponse.data.values.length > 1) {
+                    const formRows = formResponse.data.values.slice(1);
+                    
+                    for (let index = 0; index < formRows.length; index++) {
+                        const row = formRows[index];
+                        if (row.length >= 2 && row[1]) {
+                            const timestamp = row[0] || '';
+                            let confessionId;
+                            
+                            if (timestamp) {
+                                try {
+                                    const cleaned = timestamp.replace(/\//g, '').replace(/:/g, '').replace(/\s+/g, '_');
+                                    confessionId = `form_${cleaned}`;
+                                } catch (e) {
+                                    confessionId = `form_row_${index + 2}`;
+                                }
+                            } else {
+                                confessionId = `form_row_${index + 2}`;
+                            }
+                            
+                            if (confessionId === id) {
+                                const driveLink = row[2] || null;
+                                const directImageUrl = this.convertDriveLinkToDirectUrl(driveLink);
+                                
+                                return {
+                                    id: confessionId,
+                                    timestamp: row[0] || '',
+                                    content: row[1] || '',
+                                    images: directImageUrl ? [directImageUrl] : [],
+                                    image: directImageUrl,
+                                    driveLink: driveLink,
+                                    source: 'google_form',
+                                    status: row[4] || 'pending',
+                                    rowIndex: index + 2
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+            
+            console.log(`⚠️  Confession ${id} not found in any sheet`);
+            return null;
         } catch (error) {
             console.error('Error getting confession from Sheets:', error.message);
             return null;
@@ -448,14 +501,18 @@ class SheetsService {
     }
 
     /**
-     * Delete confession
+     * Delete confession (delete row from sheet + mark in DB)
      */
-    async deleteConfession(id) {
+    async deleteConfession(id, deleteFromSheet = true) {
         try {
             console.log(`🗑️  Deleting confession: ${id}`);
             
             // Get confession details before deleting
             const confession = await this.getConfessionById(id);
+            
+            if (!confession) {
+                console.log(`⚠️  Confession ${id} not found, marking as deleted in DB only`);
+            }
             
             // Save to ProcessedConfession to prevent it from showing up again
             await ProcessedConfession.findOneAndUpdate(
@@ -472,11 +529,21 @@ class SheetsService {
             
             console.log(`✅ Confession ${id} marked as deleted in database`);
             
-            // Also try to update in Sheets (optional, won't fail if it doesn't work)
-            try {
-                await this.updateConfessionStatus(id, 'deleted');
-            } catch (e) {
-                console.log('ℹ️  Could not update status in Google Sheets (this is OK)');
+            // Delete row from Google Sheets if requested
+            if (deleteFromSheet && confession) {
+                try {
+                    const sheetName = id.includes('form_') 
+                        ? "Câu trả lời biểu mẫu 1" 
+                        : 'Pending_Confessions';
+                    const rowNum = confession.rowIndex;
+                    
+                    console.log(`🗑️  Deleting row ${rowNum} from "${sheetName}"...`);
+                    await this.deleteRowFromSheet(sheetName, rowNum);
+                    console.log(`✅ Row ${rowNum} deleted from ${sheetName}`);
+                } catch (e) {
+                    console.log(`⚠️  Could not delete row from sheet: ${e.message}`);
+                    console.log(`ℹ️  Confession still marked as deleted in DB`);
+                }
             }
             
             return true;
