@@ -339,7 +339,8 @@ app.post('/api/admin/approve/:id', authenticateToken, async (req, res) => {
         if (sourceType === 'website') {
             await databaseService.updateConfessionStatus(id, 'approved', esId, fbPost.id, req.user.username);
         } else {
-            await sheetsService.updateConfessionStatus(id, 'approved', esId, fbPost.id);
+            // For Google Sheets: DELETE ROW after approval (clean up the sheet)
+            await sheetsService.updateConfessionStatus(id, 'approved', esId, fbPost.id, true);
         }
 
         res.json({ 
@@ -433,7 +434,8 @@ app.post('/api/admin/approve-all', authenticateToken, async (req, res) => {
                 if (confession.sourceType === 'website') {
                     await databaseService.updateConfessionStatus(confession.id, 'approved', esId, fbPost.id, req.user.username);
                 } else {
-                    await sheetsService.updateConfessionStatus(confession.id, 'approved', esId, fbPost.id);
+                    // For Google Sheets: DELETE ROW after approval
+                    await sheetsService.updateConfessionStatus(confession.id, 'approved', esId, fbPost.id, true);
                 }
 
                 results.push({

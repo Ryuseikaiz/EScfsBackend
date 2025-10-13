@@ -7,22 +7,29 @@ async function listSheets() {
     try {
         console.log('🔍 Checking Google Sheets configuration...\n');
 
-        // Check credentials file
-        const credentialsPath = process.env.GOOGLE_CREDENTIALS_PATH || 
-                               path.join(__dirname, 'google-credentials.json');
+        let credentials;
 
-        if (!fs.existsSync(credentialsPath)) {
-            console.error('❌ Credentials file not found at:', credentialsPath);
-            console.log('\n📝 Please:');
-            console.log('1. Download credentials from Google Cloud Console');
-            console.log('2. Save as google-credentials.json in escfs_backend folder');
-            process.exit(1);
+        // Check environment variable first (for production)
+        if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
+            console.log('✅ Using credentials from environment variable');
+            credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
+        } else {
+            // Check credentials file (for local)
+            const credentialsPath = process.env.GOOGLE_CREDENTIALS_PATH || 
+                                   path.join(__dirname, 'google-credentials.json');
+
+            if (!fs.existsSync(credentialsPath)) {
+                console.error('❌ Credentials file not found at:', credentialsPath);
+                console.log('\n📝 Please:');
+                console.log('1. Download credentials from Google Cloud Console');
+                console.log('2. Save as google-credentials.json in escfs_backend folder');
+                process.exit(1);
+            }
+
+            console.log('✅ Credentials file found:', credentialsPath);
+            credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
         }
 
-        console.log('✅ Credentials file found:', credentialsPath);
-
-        // Load credentials
-        const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
         console.log('✅ Service Account Email:', credentials.client_email);
 
         // Initialize Google Sheets API

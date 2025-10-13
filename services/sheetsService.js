@@ -125,7 +125,23 @@ class SheetsService {
                     const formRows = formResponse.data.values.slice(1);
                     formRows.forEach((row, index) => {
                         if (row.length >= 2 && row[1]) { // Check if content exists
-                            const confessionId = `form_${index + 2}`;
+                            // Use timestamp as unique ID (safer than row index)
+                            // Format: "13/10/2025 1:45:36" → "form_13102025_014536"
+                            const timestamp = row[0] || '';
+                            let confessionId;
+                            
+                            if (timestamp) {
+                                // Parse timestamp to create unique ID
+                                try {
+                                    const cleaned = timestamp.replace(/\//g, '').replace(/:/g, '').replace(/\s+/g, '_');
+                                    confessionId = `form_${cleaned}`;
+                                } catch (e) {
+                                    // Fallback to row index if timestamp parsing fails
+                                    confessionId = `form_row_${index + 2}`;
+                                }
+                            } else {
+                                confessionId = `form_row_${index + 2}`;
+                            }
                             
                             // Skip if already processed (approved or deleted)
                             if (processedIds.has(confessionId)) {
@@ -288,9 +304,51 @@ class SheetsService {
     }
 
     /**
+     * Delete a row from Google Sheets
+     */
+    async deleteRowFromSheet(sheetName, rowIndex) {
+        try {
+            // Get sheet ID first
+            const spreadsheet = await this.sheets.spreadsheets.get({
+                spreadsheetId: this.spreadsheetId
+            });
+            
+            const sheet = spreadsheet.data.sheets.find(s => s.properties.title === sheetName);
+            if (!sheet) {
+                throw new Error(`Sheet "${sheetName}" not found`);
+            }
+            
+            const sheetId = sheet.properties.sheetId;
+            
+            // Delete the row (rowIndex is 1-based, API uses 0-based)
+            await this.sheets.spreadsheets.batchUpdate({
+                spreadsheetId: this.spreadsheetId,
+                resource: {
+                    requests: [{
+                        deleteDimension: {
+                            range: {
+                                sheetId: sheetId,
+                                dimension: 'ROWS',
+                                startIndex: rowIndex - 1, // Convert to 0-based
+                                endIndex: rowIndex // Exclusive end
+                            }
+                        }
+                    }]
+                }
+            });
+            
+            console.log(`✅ Deleted row ${rowIndex} from "${sheetName}"`);
+            return true;
+        } catch (error) {
+            console.error(`❌ Error deleting row ${rowIndex} from "${sheetName}":`, error.message);
+            throw error;
+        }
+    }
+
+    /**
      * Update confession status after approval
      */
-    async updateConfessionStatus(id, status, esId = null, fbPostId = null) {
+    async updateConfessionStatus(id, status, esId = null, fbPostId = null, deleteRow = false) {
         try {
             const confession = await this.getConfessionById(id);
             
@@ -341,30 +399,45 @@ class SheetsService {
                 console.log(`✅ Confession #ES_${esId} added to Published_Confessions`);
             }
 
-            // Mark as processed in original sheet
+            // Mark as processed in original sheet OR delete row
             const sheetName = id.includes('form_') 
-                ? "'Câu trả lời biểu mẫu 1'" 
+                ? "Câu trả lời biểu mẫu 1" 
                 : 'Pending_Confessions';
             const rowNum = confession.rowIndex;
 
-            // Try to update status column (column E or F depending on sheet structure)
-            try {
-                console.log(`📝 Updating status in ${sheetName} row ${rowNum} to: ${status}`);
-                
-                await this.sheets.spreadsheets.values.update({
-                    spreadsheetId: this.spreadsheetId,
-                    range: `${sheetName}!E${rowNum}`,
-                    valueInputOption: 'USER_ENTERED',
-                    resource: {
-                        values: [[status]]
-                    }
-                });
-                
-                console.log(`✅ Status updated successfully in ${sheetName}`);
-            } catch (e) {
-                console.log(`⚠️  Could not update status in ${sheetName}, row ${rowNum}: ${e.message}`);
-                console.log(`ℹ️  This is normal for Google Form response sheets (read-only)`);
-                // Don't throw error - deletion/approval can still work without status update
+            // Option 1: Delete the row completely (recommended for approved confessions)
+            if (deleteRow && status === 'approved') {
+                try {
+                    console.log(`🗑️  Deleting row ${rowNum} from "${sheetName}"...`);
+                    await this.deleteRowFromSheet(sheetName, rowNum);
+                    console.log(`✅ Row deleted successfully from ${sheetName}`);
+                } catch (e) {
+                    console.log(`⚠️  Could not delete row from ${sheetName}: ${e.message}`);
+                    console.log(`ℹ️  Will try to update status instead...`);
+                    deleteRow = false; // Fallback to status update
+                }
+            }
+
+            // Option 2: Update status column (fallback or for deleted confessions)
+            if (!deleteRow) {
+                try {
+                    console.log(`📝 Updating status in ${sheetName} row ${rowNum} to: ${status}`);
+                    
+                    await this.sheets.spreadsheets.values.update({
+                        spreadsheetId: this.spreadsheetId,
+                        range: `'${sheetName}'!E${rowNum}`,
+                        valueInputOption: 'USER_ENTERED',
+                        resource: {
+                            values: [[status]]
+                        }
+                    });
+                    
+                    console.log(`✅ Status updated successfully in ${sheetName}`);
+                } catch (e) {
+                    console.log(`⚠️  Could not update status in ${sheetName}, row ${rowNum}: ${e.message}`);
+                    console.log(`ℹ️  This is normal for Google Form response sheets (read-only)`);
+                    // Don't throw error - deletion/approval can still work without status update
+                }
             }
 
             return true;
