@@ -27,7 +27,7 @@ class FacebookService {
             const response = await axios.get(`${this.baseURL}/${this.pageId}/posts`, {
                 params: {
                     access_token: this.pageAccessToken,
-                    fields: 'id,message,created_time,full_picture,attachments',
+                    fields: 'id,message,created_time,full_picture,attachments,reactions.summary(true),comments.summary(true)',
                     limit: requestLimit
                 }
             });
@@ -45,7 +45,9 @@ class FacebookService {
                     content: message,
                     createdTime: post.created_time,
                     image: post.full_picture || null,
-                    attachments: post.attachments
+                    attachments: post.attachments,
+                    reactionCount: post.reactions?.summary?.total_count || 0,
+                    commentCount: post.comments?.summary?.total_count || 0
                 };
             });
 
