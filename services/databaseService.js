@@ -154,13 +154,36 @@ class DatabaseService {
     }
 
     /**
-     * Delete confession from MongoDB
+     * Delete confession from MongoDB (PERMANENTLY)
      */
     async deleteConfession(id) {
         try {
+            const confession = await Confession.findByIdAndDelete(id);
+
+            if (!confession) {
+                throw new Error('Confession not found');
+            }
+
+            console.log(`✅ Confession ${id} permanently deleted from database`);
+            return confession;
+        } catch (error) {
+            console.error('Error deleting confession:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Reject confession (mark as rejected, keep in DB for history)
+     */
+    async rejectConfession(id, rejectedBy = null) {
+        try {
             const confession = await Confession.findByIdAndUpdate(
                 id,
-                { status: 'rejected' },
+                { 
+                    status: 'rejected',
+                    processedBy: rejectedBy,
+                    processedAt: new Date()
+                },
                 { new: true }
             );
 
@@ -171,7 +194,7 @@ class DatabaseService {
             console.log(`✅ Confession ${id} marked as rejected`);
             return confession;
         } catch (error) {
-            console.error('Error deleting confession:', error);
+            console.error('Error rejecting confession:', error);
             throw error;
         }
     }
