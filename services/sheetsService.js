@@ -117,14 +117,21 @@ class SheetsService {
             try {
                 const formResponse = await this.sheets.spreadsheets.values.get({
                     spreadsheetId: this.spreadsheetId,
-                    range: "'Câu trả lời biểu mẫu 1'!A:E"
+                    range: "'Câu trả lời biểu mẫu 1'!A:F" // Extended to F to cover all columns
                 });
 
                 // Process form responses (skip header row)
                 if (formResponse.data.values && formResponse.data.values.length > 1) {
                     const formRows = formResponse.data.values.slice(1);
                     formRows.forEach((row, index) => {
-                        if (row.length >= 2 && row[1]) { // Check if content exists
+                        // Column mapping after adding Column B:
+                        // A = Timestamp
+                        // B = Column 4 (new)
+                        // C = Content (Confession text)
+                        // D = Image link (Drive)
+                        // E = Status (if exists)
+                        
+                        if (row.length >= 3 && row[2]) { // Check if content exists in column C
                             // Use timestamp as unique ID (safer than row index)
                             // Format: "13/10/2025 1:45:36" → "form_13102025_014536"
                             const timestamp = row[0] || '';
@@ -148,13 +155,13 @@ class SheetsService {
                                 return;
                             }
                             
-                            const driveLink = row[2] || null;
+                            const driveLink = row[3] || null; // Column D (was row[2])
                             const directImageUrl = this.convertDriveLinkToDirectUrl(driveLink);
                             
                             confessions.push({
                                 id: confessionId,
-                                timestamp: row[0] || '',
-                                content: row[1] || '',
+                                timestamp: row[0] || '', // Column A
+                                content: row[2] || '',   // Column C (was row[1])
                                 images: directImageUrl ? [directImageUrl] : [], // Direct image URL array
                                 image: directImageUrl, // Keep for backward compatibility
                                 driveLink: driveLink, // Original Drive link
@@ -259,7 +266,7 @@ class SheetsService {
             if (id.startsWith('form_')) {
                 const formResponse = await this.sheets.spreadsheets.values.get({
                     spreadsheetId: this.spreadsheetId,
-                    range: "'Câu trả lời biểu mẫu 1'!A:E"
+                    range: "'Câu trả lời biểu mẫu 1'!A:F" // Extended to F
                 });
 
                 if (formResponse.data.values && formResponse.data.values.length > 1) {
@@ -267,7 +274,8 @@ class SheetsService {
                     
                     for (let index = 0; index < formRows.length; index++) {
                         const row = formRows[index];
-                        if (row.length >= 2 && row[1]) {
+                        // Check column C for content (was column B)
+                        if (row.length >= 3 && row[2]) {
                             const timestamp = row[0] || '';
                             let confessionId;
                             
@@ -283,18 +291,18 @@ class SheetsService {
                             }
                             
                             if (confessionId === id) {
-                                const driveLink = row[2] || null;
+                                const driveLink = row[3] || null; // Column D (was row[2])
                                 const directImageUrl = this.convertDriveLinkToDirectUrl(driveLink);
                                 
                                 return {
                                     id: confessionId,
-                                    timestamp: row[0] || '',
-                                    content: row[1] || '',
+                                    timestamp: row[0] || '', // Column A
+                                    content: row[2] || '',   // Column C (was row[1])
                                     images: directImageUrl ? [directImageUrl] : [],
                                     image: directImageUrl,
                                     driveLink: driveLink,
                                     source: 'google_form',
-                                    status: row[4] || 'pending',
+                                    status: row[4] || 'pending', // Column E (if exists)
                                     rowIndex: index + 2
                                 };
                             }
