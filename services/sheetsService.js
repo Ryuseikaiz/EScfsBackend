@@ -56,6 +56,51 @@ class SheetsService {
     }
 
     /**
+     * Parse Google Sheets timestamp to ISO date string
+     * @param {string} timestamp - Timestamp from Google Sheets (e.g., "15/10/2025 14:27:32")
+     * @returns {string} - ISO date string or original if parsing fails
+     */
+    parseGoogleSheetsTimestamp(timestamp) {
+        if (!timestamp || typeof timestamp !== 'string') {
+            return new Date().toISOString();
+        }
+
+        try {
+            // Google Sheets format: "DD/MM/YYYY HH:MM:SS" or "D/M/YYYY H:MM:SS"
+            const match = timestamp.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})/);
+            
+            if (match) {
+                const [, day, month, year, hour, minute, second] = match;
+                
+                // Create date string in YYYY-MM-DDTHH:MM:SS format
+                // Pad with zeros for consistency
+                const dateStr = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:${second.padStart(2, '0')}+07:00`;
+                
+                const date = new Date(dateStr);
+                
+                // Check if date is valid
+                if (!isNaN(date.getTime())) {
+                    return date.toISOString();
+                }
+            }
+            
+            // Fallback: try native Date parsing
+            const fallbackDate = new Date(timestamp);
+            if (!isNaN(fallbackDate.getTime())) {
+                return fallbackDate.toISOString();
+            }
+            
+            // If all fails, return current date
+            console.warn(`⚠️  Could not parse timestamp: ${timestamp}, using current date`);
+            return new Date().toISOString();
+            
+        } catch (error) {
+            console.error('Error parsing timestamp:', error);
+            return new Date().toISOString();
+        }
+    }
+
+    /**
      * Convert Google Drive link to direct image URL
      * @param {string} driveUrl - Google Drive URL (view or sharing link)
      * @returns {string|null} - Direct image URL or null
@@ -160,7 +205,7 @@ class SheetsService {
                             
                             confessions.push({
                                 id: confessionId,
-                                timestamp: row[0] || '', // Column A
+                                timestamp: this.parseGoogleSheetsTimestamp(row[0]), // Parse to ISO format
                                 content: row[2] || '',   // Column C (was row[1])
                                 images: directImageUrl ? [directImageUrl] : [], // Direct image URL array
                                 image: directImageUrl, // Keep for backward compatibility
@@ -191,7 +236,7 @@ class SheetsService {
                         if (row.length >= 2 && row[4] !== 'approved' && row[4] !== 'deleted') {
                             confessions.push({
                                 id: `pending_${index + 2}`,
-                                timestamp: row[0] || '',
+                                timestamp: this.parseGoogleSheetsTimestamp(row[0]), // Parse to ISO format
                                 content: row[1] || '',
                                 source: row[2] || 'website',
                                 status: row[3] || 'pending',
@@ -296,7 +341,7 @@ class SheetsService {
                                 
                                 return {
                                     id: confessionId,
-                                    timestamp: row[0] || '', // Column A
+                                    timestamp: this.parseGoogleSheetsTimestamp(row[0]), // Parse to ISO format
                                     content: row[2] || '',   // Column C (was row[1])
                                     images: directImageUrl ? [directImageUrl] : [],
                                     image: directImageUrl,
