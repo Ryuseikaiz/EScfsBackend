@@ -293,7 +293,8 @@ app.post('/api/admin/approve/:id', authenticateToken, async (req, res) => {
         const sheetsLatestId = await sheetsService.getNextESId();
         const fbLatestId = await facebookService.getLatestESId();
         
-        let esId = Math.max(dbLatestId, sheetsLatestId, fbLatestId) + 1;
+        // All three functions already return the NEXT ID to use, so don't add +1 again
+        let esId = Math.max(dbLatestId, sheetsLatestId, fbLatestId);
         
         // Reset to 0 if exceeds 9999 (cycle back)
         if (esId > 9999) {
@@ -395,7 +396,9 @@ app.post('/api/admin/approve-all', authenticateToken, async (req, res) => {
         const dbLatestId = await databaseService.getLatestESId();
         const sheetsLatestId = await sheetsService.getNextESId();
         const fbLatestId = await facebookService.getLatestESId();
-        let esId = Math.max(dbLatestId, sheetsLatestId, fbLatestId) + 1;
+        
+        // All three functions already return the NEXT ID to use, so don't add +1 again
+        let esId = Math.max(dbLatestId, sheetsLatestId, fbLatestId);
 
         // Process each confession
         for (const confession of allPendingConfessions) {

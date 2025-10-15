@@ -233,7 +233,7 @@ class DatabaseService {
     }
 
     /**
-     * Get latest ES_ID from approved confessions
+     * Get next ES_ID to use (latest + 1)
      */
     async getLatestESId() {
         try {
@@ -244,10 +244,11 @@ class DatabaseService {
             .sort({ esId: -1 })
             .lean();
 
-            return confession ? confession.esId : 2289;
+            // Return NEXT ID to use (latest + 1)
+            return confession ? confession.esId + 1 : 2290;
         } catch (error) {
             console.error('Error getting latest ES_ID:', error);
-            return 2289;
+            return 2290;
         }
     }
 }

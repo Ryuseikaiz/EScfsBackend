@@ -201,7 +201,7 @@ class FacebookService {
     }
 
     /**
-     * Get the latest ES_ID from Facebook posts
+     * Get the next ES_ID to use (latest + 1)
      */
     async getLatestESId() {
         try {
@@ -214,13 +214,14 @@ class FacebookService {
                 .filter(id => !isNaN(id));
 
             if (esIds.length === 0) {
-                return 2289; // Start from ES_2289 as requested
+                return 2290; // Start from ES_2290
             }
 
-            return Math.max(...esIds);
+            // Return NEXT ID to use (latest + 1)
+            return Math.max(...esIds) + 1;
         } catch (error) {
             console.error('Error getting latest ES_ID:', error);
-            return 2289; // Default to 2289
+            return 2290; // Default to 2290
         }
     }
 }
