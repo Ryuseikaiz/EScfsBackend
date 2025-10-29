@@ -303,21 +303,21 @@ app.post('/api/admin/approve/:id', authenticateToken, async (req, res) => {
         
         console.log(`📊 ES_ID calculation: DB=${dbLatestId}, Sheets=${sheetsLatestId}, FB=${fbLatestId} → Next=${esId}${esId === 0 ? ' (Reset cycle)' : ''}`);
         
-        // Determine which image to use for Facebook posting
-        let fbImageUrl = null;
-        
+        // Determine which images to use for Facebook posting
+        let fbImageUrls = [];
+
         if (sourceType === 'google_sheets' && (confession.driveLink || (confession.images && confession.images.length > 0))) {
             // Google Sheets: Download from Drive → Upload to ImgBB → Post to Facebook
             try {
                 console.log('🔄 Converting Google Drive images to ImgBB for Facebook posting...');
-                
+
                 const driveUrls = confession.images || [confession.driveLink];
                 const downloadedFiles = await driveDownloadService.downloadMultipleImages(driveUrls);
-                
+
                 if (downloadedFiles.length > 0) {
                     const imgbbUrls = await imgbbService.uploadMultipleImages(downloadedFiles);
-                    fbImageUrl = imgbbUrls[0]; // Use first image for Facebook
-                    console.log(`✅ Converted to ImgBB: ${fbImageUrl}`);
+                    fbImageUrls = imgbbUrls; // Use ALL images for Facebook
+                    console.log(`✅ Converted ${imgbbUrls.length} image(s) to ImgBB`);
                 }
             } catch (conversionError) {
                 console.error('⚠️  Failed to convert images:', conversionError.message);
@@ -325,15 +325,15 @@ app.post('/api/admin/approve/:id', authenticateToken, async (req, res) => {
             }
         } else if (sourceType === 'website' && confession.images && confession.images.length > 0) {
             // Website submissions already use ImgBB
-            fbImageUrl = confession.images[0];
-            console.log(`✅ Using website ImgBB image: ${fbImageUrl}`);
+            fbImageUrls = confession.images; // Use ALL images for Facebook
+            console.log(`✅ Using ${confession.images.length} website ImgBB image(s)`);
         }
-        
-        // Post to Facebook (with image if available)
+
+        // Post to Facebook (with images if available)
         const fbPost = await facebookService.postConfession(
-            esId, 
-            confession.content, 
-            fbImageUrl
+            esId,
+            confession.content,
+            fbImageUrls.length > 0 ? fbImageUrls : null
         );
         
         // Update status in appropriate source
@@ -409,28 +409,28 @@ app.post('/api/admin/approve-all', authenticateToken, async (req, res) => {
                 }
 
                 // Handle images
-                let fbImageUrl = null;
+                let fbImageUrls = [];
                 if (confession.sourceType === 'google_sheets' && (confession.driveLink || (confession.images && confession.images.length > 0))) {
                     try {
                         const driveUrls = confession.images || [confession.driveLink];
                         const downloadedFiles = await driveDownloadService.downloadMultipleImages(driveUrls);
-                        
+
                         if (downloadedFiles.length > 0) {
                             const imgbbUrls = await imgbbService.uploadMultipleImages(downloadedFiles);
-                            fbImageUrl = imgbbUrls[0];
+                            fbImageUrls = imgbbUrls; // Use ALL images
                         }
                     } catch (conversionError) {
                         console.error(`⚠️ Failed to convert images for confession ${confession.id}:`, conversionError.message);
                     }
                 } else if (confession.sourceType === 'website' && confession.images && confession.images.length > 0) {
-                    fbImageUrl = confession.images[0];
+                    fbImageUrls = confession.images; // Use ALL images
                 }
 
                 // Post to Facebook
                 const fbPost = await facebookService.postConfession(
-                    esId, 
-                    confession.content, 
-                    fbImageUrl
+                    esId,
+                    confession.content,
+                    fbImageUrls.length > 0 ? fbImageUrls : null
                 );
 
                 // Update status

@@ -116,9 +116,12 @@ class FacebookService {
     }
 
     /**
-     * Post confession to Facebook page (with optional image)
+     * Post confession to Facebook page (with optional image or multiple images)
+     * @param {number} esId - ES ID number
+     * @param {string} content - Confession content
+     * @param {string|string[]} imageUrls - Single image URL or array of image URLs
      */
-    async postConfession(esId, content, imageUrl = null) {
+    async postConfession(esId, content, imageUrls = null) {
         try {
             if (!this.pageAccessToken || !this.pageId) {
                 throw new Error('Facebook credentials not configured');
@@ -127,50 +130,103 @@ class FacebookService {
             // Format message with ES_ID
             const formattedMessage = `#ES_${esId} ${content}`;
 
-            // If image URL provided, download and upload as binary
-            if (imageUrl) {
+            // Convert single URL to array for consistent handling
+            const imageUrlArray = imageUrls ? (Array.isArray(imageUrls) ? imageUrls : [imageUrls]) : [];
+
+            // If images provided, post with images
+            if (imageUrlArray.length > 0) {
                 try {
-                    console.log(`📥 Downloading image from: ${imageUrl}`);
-                    
-                    // Download image
-                    const imageResponse = await axios.get(imageUrl, {
-                        responseType: 'arraybuffer'
-                    });
-                    
-                    const imageBuffer = Buffer.from(imageResponse.data);
-                    console.log(`✅ Downloaded ${imageBuffer.length} bytes`);
+                    console.log(`📥 Downloading ${imageUrlArray.length} image(s)...`);
 
-                    // Upload to Facebook using multipart form data
-                    const FormData = require('form-data');
-                    const formData = new FormData();
-                    
-                    formData.append('message', formattedMessage);
-                    formData.append('access_token', this.pageAccessToken);
-                    formData.append('source', imageBuffer, {
-                        filename: 'confession.jpg',
-                        contentType: 'image/jpeg'
-                    });
+                    // Download all images
+                    const imageBuffers = await Promise.all(
+                        imageUrlArray.map(async (url, index) => {
+                            console.log(`  📥 Downloading image ${index + 1}/${imageUrlArray.length}: ${url}`);
+                            const response = await axios.get(url, { responseType: 'arraybuffer' });
+                            const buffer = Buffer.from(response.data);
+                            console.log(`  ✅ Downloaded ${buffer.length} bytes`);
+                            return buffer;
+                        })
+                    );
 
-                    const response = await axios.post(
-                        `${this.baseURL}/${this.pageId}/photos`,
-                        formData,
+                    // If only 1 image, use simple photo upload
+                    if (imageBuffers.length === 1) {
+                        const FormData = require('form-data');
+                        const formData = new FormData();
+
+                        formData.append('message', formattedMessage);
+                        formData.append('access_token', this.pageAccessToken);
+                        formData.append('source', imageBuffers[0], {
+                            filename: 'confession.jpg',
+                            contentType: 'image/jpeg'
+                        });
+
+                        const response = await axios.post(
+                            `${this.baseURL}/${this.pageId}/photos`,
+                            formData,
+                            { headers: { ...formData.getHeaders() } }
+                        );
+
+                        console.log(`✅ Posted confession #ES_${esId} to Facebook with 1 image:`, response.data.id);
+                        return {
+                            id: response.data.id,
+                            esId: esId,
+                            message: formattedMessage
+                        };
+                    }
+
+                    // Multiple images: Upload each photo first, then create feed post with attached_media
+                    console.log(`📤 Uploading ${imageBuffers.length} images to Facebook...`);
+
+                    const uploadedPhotoIds = await Promise.all(
+                        imageBuffers.map(async (buffer, index) => {
+                            const FormData = require('form-data');
+                            const formData = new FormData();
+
+                            formData.append('access_token', this.pageAccessToken);
+                            formData.append('published', 'false'); // Don't publish yet
+                            formData.append('source', buffer, {
+                                filename: `confession_${index + 1}.jpg`,
+                                contentType: 'image/jpeg'
+                            });
+
+                            const uploadResponse = await axios.post(
+                                `${this.baseURL}/${this.pageId}/photos`,
+                                formData,
+                                { headers: { ...formData.getHeaders() } }
+                            );
+
+                            console.log(`  ✅ Uploaded image ${index + 1}: ${uploadResponse.data.id}`);
+                            return uploadResponse.data.id;
+                        })
+                    );
+
+                    // Create feed post with all attached photos
+                    console.log(`📝 Creating feed post with ${uploadedPhotoIds.length} images...`);
+
+                    const attachedMedia = uploadedPhotoIds.map(photoId => ({ media_fbid: photoId }));
+
+                    const feedResponse = await axios.post(
+                        `${this.baseURL}/${this.pageId}/feed`,
                         {
-                            headers: {
-                                ...formData.getHeaders()
-                            }
+                            message: formattedMessage,
+                            attached_media: JSON.stringify(attachedMedia),
+                            access_token: this.pageAccessToken
                         }
                     );
 
-                    console.log(`✅ Posted confession #ES_${esId} to Facebook with image:`, response.data.id);
+                    console.log(`✅ Posted confession #ES_${esId} to Facebook with ${imageBuffers.length} images:`, feedResponse.data.id);
 
                     return {
-                        id: response.data.id,
+                        id: feedResponse.data.id,
                         esId: esId,
-                        message: formattedMessage
+                        message: formattedMessage,
+                        imageCount: imageBuffers.length
                     };
-                    
+
                 } catch (imageError) {
-                    console.error('❌ Failed to post with image, posting text-only:', imageError.message);
+                    console.error('❌ Failed to post with images:', imageError.response?.data || imageError.message);
+                    console.log('⚠️  Falling back to text-only post...');
                     // Fallback to text-only post
                 }
             }
@@ -193,7 +249,7 @@ class FacebookService {
                 esId: esId,
                 message: formattedMessage
             };
-            
+
         } catch (error) {
             console.error('Error posting to Facebook:', error.response?.data || error.message);
             throw error;
