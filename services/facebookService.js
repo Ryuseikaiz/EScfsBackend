@@ -119,9 +119,9 @@ class FacebookService {
      * Post confession to Facebook page (with optional image or multiple images)
      * @param {number} esId - ES ID number
      * @param {string} content - Confession content
-     * @param {string|string[]} imageUrls - Single image URL or array of image URLs
+     * @param {string|string[]|Buffer|Buffer[]} imageData - Image URLs, single Buffer, or array of Buffers
      */
-    async postConfession(esId, content, imageUrls = null) {
+    async postConfession(esId, content, imageData = null) {
         try {
             if (!this.pageAccessToken || !this.pageId) {
                 throw new Error('Facebook credentials not configured');
@@ -130,25 +130,46 @@ class FacebookService {
             // Format message with ES_ID
             const formattedMessage = `#ES_${esId} ${content}`;
 
-            // Convert single URL to array for consistent handling
-            const imageUrlArray = imageUrls ? (Array.isArray(imageUrls) ? imageUrls : [imageUrls]) : [];
+            // Handle different input types: URLs or Buffers
+            let imageBuffers = [];
+            
+            if (imageData) {
+                if (Array.isArray(imageData)) {
+                    // Array of URLs or Buffers
+                    if (imageData.length > 0) {
+                        if (Buffer.isBuffer(imageData[0])) {
+                            // Already buffers - use directly (best quality!)
+                            imageBuffers = imageData;
+                            console.log(`� Using ${imageBuffers.length} pre-downloaded image buffer(s) (full quality)`);
+                        } else {
+                            // URLs - need to download
+                            console.log(`📥 Downloading ${imageData.length} image(s) from URLs...`);
+                            imageBuffers = await Promise.all(
+                                imageData.map(async (url, index) => {
+                                    console.log(`  📥 Downloading image ${index + 1}/${imageData.length}: ${url}`);
+                                    const response = await axios.get(url, { responseType: 'arraybuffer' });
+                                    const buffer = Buffer.from(response.data);
+                                    console.log(`  ✅ Downloaded ${buffer.length} bytes`);
+                                    return buffer;
+                                })
+                            );
+                        }
+                    }
+                } else if (Buffer.isBuffer(imageData)) {
+                    // Single Buffer
+                    imageBuffers = [imageData];
+                    console.log(`📤 Using 1 pre-downloaded image buffer (full quality)`);
+                } else {
+                    // Single URL
+                    console.log(`📥 Downloading image from URL: ${imageData}`);
+                    const response = await axios.get(imageData, { responseType: 'arraybuffer' });
+                    imageBuffers = [Buffer.from(response.data)];
+                }
+            }
 
             // If images provided, post with images
-            if (imageUrlArray.length > 0) {
+            if (imageBuffers.length > 0) {
                 try {
-                    console.log(`📥 Downloading ${imageUrlArray.length} image(s)...`);
-
-                    // Download all images
-                    const imageBuffers = await Promise.all(
-                        imageUrlArray.map(async (url, index) => {
-                            console.log(`  📥 Downloading image ${index + 1}/${imageUrlArray.length}: ${url}`);
-                            const response = await axios.get(url, { responseType: 'arraybuffer' });
-                            const buffer = Buffer.from(response.data);
-                            console.log(`  ✅ Downloaded ${buffer.length} bytes`);
-                            return buffer;
-                        })
-                    );
-
                     // If only 1 image, use simple photo upload
                     if (imageBuffers.length === 1) {
                         const FormData = require('form-data');
