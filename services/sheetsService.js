@@ -201,14 +201,23 @@ class SheetsService {
                             }
                             
                             const driveLink = row[3] || null; // Column D (was row[2])
-                            const directImageUrl = this.convertDriveLinkToDirectUrl(driveLink);
+                            
+                            // Handle multiple Drive links (comma-separated, newline-separated, or space-separated)
+                            let directImageUrls = [];
+                            if (driveLink) {
+                                // Split by comma, newline, or multiple spaces
+                                const links = driveLink.split(/[,\n]+/).map(l => l.trim()).filter(l => l.length > 0);
+                                directImageUrls = links
+                                    .map(link => this.convertDriveLinkToDirectUrl(link))
+                                    .filter(url => url !== null);
+                            }
                             
                             confessions.push({
                                 id: confessionId,
                                 timestamp: this.parseGoogleSheetsTimestamp(row[0]), // Parse to ISO format
                                 content: row[2] || '',   // Column C (was row[1])
-                                images: directImageUrl ? [directImageUrl] : [], // Direct image URL array
-                                image: directImageUrl, // Keep for backward compatibility
+                                images: directImageUrls, // Array of direct image URLs
+                                image: directImageUrls[0] || null, // Keep for backward compatibility
                                 driveLink: driveLink, // Original Drive link
                                 source: 'google_form',
                                 status: 'pending',
@@ -337,14 +346,23 @@ class SheetsService {
                             
                             if (confessionId === id) {
                                 const driveLink = row[3] || null; // Column D (was row[2])
-                                const directImageUrl = this.convertDriveLinkToDirectUrl(driveLink);
+                                
+                                // Handle multiple Drive links (comma-separated, newline-separated, or space-separated)
+                                let directImageUrls = [];
+                                if (driveLink) {
+                                    // Split by comma, newline, or multiple spaces
+                                    const links = driveLink.split(/[,\n]+/).map(l => l.trim()).filter(l => l.length > 0);
+                                    directImageUrls = links
+                                        .map(link => this.convertDriveLinkToDirectUrl(link))
+                                        .filter(url => url !== null);
+                                }
                                 
                                 return {
                                     id: confessionId,
                                     timestamp: this.parseGoogleSheetsTimestamp(row[0]), // Parse to ISO format
                                     content: row[2] || '',   // Column C (was row[1])
-                                    images: directImageUrl ? [directImageUrl] : [],
-                                    image: directImageUrl,
+                                    images: directImageUrls,
+                                    image: directImageUrls[0] || null,
                                     driveLink: driveLink,
                                     source: 'google_form',
                                     status: row[4] || 'pending', // Column E (if exists)
