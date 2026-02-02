@@ -224,23 +224,81 @@ app.post('/api/admin/login', async (req, res) => {
 // Get pending confessions with filter support
 app.get('/api/admin/pending', authenticateToken, async (req, res) => {
     try {
-        const { source } = req.query; // 'website', 'google_sheets', or 'all'
+        const { source, status } = req.query; // 'website', 'google_sheets', or 'all'; status is optional
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
         
-        let websiteConfessions = [];
+        let websiteData = { confessions: [], total: 0 };
         let sheetsConfessions = [];
 
-        // Get ALL confessions from MongoDB (not just pending)
+        // Get confessions from MongoDB (pagination handled in DB)
         if (!source || source === 'all' || source === 'website') {
-            websiteConfessions = await databaseService.getAllConfessions();
+            if (source === 'website') {
+                 // Use optimized pending query if status is pending or not specified (default)
+                 if (!status || status === 'pending') {
+                     websiteData = await databaseService.getPendingConfessions(page, limit);
+                 } else {
+                     // Use generic query for history (approved/rejected)
+                     websiteData = await databaseService.getAllConfessions(status, page, limit);
+                 }
+            } else {
+                 // For 'all' source:
+                 // If requesting 'pending', fetching limited amount is "okay" but risky for sorting.
+                 // If requesting 'approved', we DEFINITELY need pagination.
+                 
+                 // If we are in 'all' mode, we really should fetch from DB with pagination
+                 // and fetch from Sheets, then merge. 
+                 
+                 if (!status || status === 'pending') {
+                    websiteData = await databaseService.getPendingConfessions(1, page * limit);
+                 } else {
+                    websiteData = await databaseService.getAllConfessions(status, 1, page * limit);
+                 }
+            }
         }
 
         // Get confessions from Google Sheets
         if (!source || source === 'all' || source === 'google_sheets') {
-            sheetsConfessions = await sheetsService.getPendingConfessions();
+             // Sheets service currently only returns "Pending". 
+             // Implementing "Approved" history from Sheets would need reading 'Published_Confessions'.
+             // For now, if status is 'approved' or 'rejected', sheets returns empty (or we need to update sheetsService)
+             // Let's assume for now Sheets only supports pending review in this dashboard.
+             
+             if (!status || status === 'pending') {
+                sheetsConfessions = await sheetsService.getPendingConfessions();
+             } else {
+                 // TODO: Implement getHistory from Sheets if needed. 
+                 sheetsConfessions = []; 
+             }
         }
 
-        const allConfessions = [
-            ...websiteConfessions.map(c => ({ ...c, sourceType: 'website' })),
+        let allConfessions = [];
+        
+        if (source === 'website') {
+            // Native DB pagination
+            allConfessions = websiteData.confessions;
+            
+            return res.json({
+                confessions: allConfessions,
+                pagination: {
+                   page: websiteData.page,
+                   limit: limit,
+                   total: websiteData.total,
+                   totalPages: websiteData.totalPages
+                },
+                stats: {
+                    website: websiteData.total,
+                    google_sheets: 0, 
+                    total: websiteData.total
+                }
+            });
+        }
+
+        // Merge logic for 'all' or 'google_sheets'
+        const websiteConfs = websiteData.confessions || [];
+        
+        allConfessions = [
+            ...websiteConfs.map(c => ({ ...c, sourceType: 'website' })),
             ...sheetsConfessions.map(c => ({ ...c, sourceType: 'google_sheets', status: c.status || 'pending' }))
         ];
 
@@ -250,17 +308,29 @@ app.get('/api/admin/pending', authenticateToken, async (req, res) => {
             const dateB = new Date(b.timestamp || b.submittedAt);
             return dateB - dateA;
         });
+        
+        // Manual Pagination for the merged list
+        const totalItems = allConfessions.length;
+        const startIndex = (page - 1) * limit;
+        const endIndex = startIndex + limit;
+        const paginatedConfessions = allConfessions.slice(startIndex, endIndex);
 
-        // Count stats
-        const pendingWebsite = websiteConfessions.filter(c => c.status === 'pending').length;
-        const pendingSheets = sheetsConfessions.filter(c => !c.status || c.status === 'pending').length;
+        // Count stats (approximate)
+        const websiteTotal = websiteData.total || websiteConfs.length;
+        const sheetsTotal = sheetsConfessions.length;
 
         res.json({
-            confessions: allConfessions,
+            confessions: paginatedConfessions,
+            pagination: {
+                page: page,
+                limit: limit,
+                total: websiteTotal + sheetsTotal,
+                totalPages: Math.ceil((websiteTotal + sheetsTotal) / limit)
+            },
             stats: {
-                website: pendingWebsite,
-                google_sheets: pendingSheets,
-                total: pendingWebsite + pendingSheets
+                website: websiteTotal,
+                google_sheets: sheetsTotal,
+                total: websiteTotal + sheetsTotal
             }
         });
     } catch (error) {
@@ -286,6 +356,16 @@ app.post('/api/admin/approve/:id', authenticateToken, async (req, res) => {
         
         if (!confession) {
             return res.status(404).json({ error: 'Confession not found' });
+        }
+
+        // CRITICAL FIX: Check if already approved to prevent duplicates
+        if (confession.status === 'approved') {
+             console.log(`⚠️ Confession ${id} is already approved. Skipping duplicate approval request.`);
+             return res.status(409).json({ 
+                 error: 'Confession already approved',
+                 esId: confession.esId ? `#ES_${confession.esId}` : 'Unknown',
+                 fbPostId: confession.fbPostId
+             });
         }
 
         // Get next ES ID (check both sources)

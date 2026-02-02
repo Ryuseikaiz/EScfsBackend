@@ -34,24 +34,40 @@ class DatabaseService {
     /**
      * Get pending confessions from MongoDB (website submissions only)
      */
-    async getPendingConfessions() {
+    async getPendingConfessions(page = 1, limit = 50) {
         try {
-            const confessions = await Confession.find({ 
-                status: 'pending',
-                source: 'website'
-            })
-            .sort({ submittedAt: -1 })
-            .lean();
+            const skip = (page - 1) * limit;
+            
+            const [confessions, total] = await Promise.all([
+                Confession.find({ 
+                    status: 'pending',
+                    source: 'website'
+                })
+                .sort({ submittedAt: -1 })
+                .skip(skip)
+                .limit(parseInt(limit))
+                .lean(),
+                
+                Confession.countDocuments({ 
+                    status: 'pending',
+                    source: 'website'
+                })
+            ]);
 
-            return confessions.map(conf => ({
-                id: conf._id.toString(),
-                content: conf.content,
-                images: conf.images || [],
-                source: conf.source,
-                status: conf.status,
-                timestamp: conf.submittedAt,
-                submittedAt: conf.submittedAt
-            }));
+            return {
+                confessions: confessions.map(conf => ({
+                    id: conf._id.toString(),
+                    content: conf.content,
+                    images: conf.images || [],
+                    source: conf.source,
+                    status: conf.status,
+                    timestamp: conf.submittedAt,
+                    submittedAt: conf.submittedAt
+                })),
+                total,
+                page: parseInt(page),
+                totalPages: Math.ceil(total / limit)
+            };
         } catch (error) {
             console.error('Error fetching pending confessions from database:', error);
             throw error;
@@ -61,28 +77,40 @@ class DatabaseService {
     /**
      * Get all confessions (including approved) from MongoDB
      */
-    async getAllConfessions(status = null) {
+    async getAllConfessions(status = null, page = 1, limit = 50) {
         try {
             const query = { source: 'website' };
             if (status) {
                 query.status = status;
             }
 
-            const confessions = await Confession.find(query)
-                .sort({ submittedAt: -1 })
-                .lean();
+            const skip = (page - 1) * limit;
 
-            return confessions.map(conf => ({
-                id: conf._id.toString(),
-                content: conf.content,
-                images: conf.images || [],
-                source: conf.source,
-                status: conf.status,
-                timestamp: conf.submittedAt,
-                submittedAt: conf.submittedAt,
-                esId: conf.esId,
-                fbPostId: conf.fbPostId
-            }));
+            const [confessions, total] = await Promise.all([
+                Confession.find(query)
+                    .sort({ submittedAt: -1 })
+                    .skip(skip)
+                    .limit(parseInt(limit))
+                    .lean(),
+                Confession.countDocuments(query)
+            ]);
+
+            return {
+                confessions: confessions.map(conf => ({
+                    id: conf._id.toString(),
+                    content: conf.content,
+                    images: conf.images || [],
+                    source: conf.source,
+                    status: conf.status,
+                    timestamp: conf.submittedAt,
+                    submittedAt: conf.submittedAt,
+                    esId: conf.esId,
+                    fbPostId: conf.fbPostId
+                })),
+                total,
+                page: parseInt(page),
+                totalPages: Math.ceil(total / limit)
+            };
         } catch (error) {
             console.error('Error fetching confessions from database:', error);
             throw error;
