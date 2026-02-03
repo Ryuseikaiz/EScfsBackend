@@ -581,10 +581,9 @@ app.post('/api/admin/reject/:id', authenticateToken, async (req, res) => {
         const { id } = req.params;
         const { sourceType } = req.body; // 'website' or 'google_sheets'
         
-        // Reject = DELETE completely (no history needed)
         if (sourceType === 'website') {
-            // For website: DELETE from database permanently
-            await databaseService.deleteConfession(id);
+            // For website: Archive to ProcessedConfession (status 'rejected') and DELETE from main DB
+            await databaseService.rejectConfession(id, req.user.username);
         } else {
             // For Google Sheets: DELETE row + mark in ProcessedConfession as rejected
             await sheetsService.deleteConfession(id, true); // true = delete row from sheet
@@ -598,7 +597,7 @@ app.post('/api/admin/reject/:id', authenticateToken, async (req, res) => {
             );
         }
 
-        res.json({ message: 'Confession rejected and deleted successfully' });
+        res.json({ message: 'Confession rejected successfully' });
     } catch (error) {
         console.error('Error rejecting confession:', error);
         res.status(500).json({ error: 'Failed to reject confession' });

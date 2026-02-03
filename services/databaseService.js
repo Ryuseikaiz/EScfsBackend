@@ -80,38 +80,64 @@ class DatabaseService {
      */
     async getAllConfessions(status = null, page = 1, limit = 50) {
         try {
-            const query = { source: 'website' };
-            if (status) {
-                query.status = status;
-            }
-
             const skip = (page - 1) * limit;
 
-            const [confessions, total] = await Promise.all([
-                Confession.find(query)
-                    .sort({ submittedAt: -1 })
-                    .skip(skip)
-                    .limit(parseInt(limit))
-                    .lean(),
-                Confession.countDocuments(query)
-            ]);
+            // If status is pending (or null default), query Confession (active)
+            if (!status || status === 'pending') {
+                 const [confessions, total] = await Promise.all([
+                    Confession.find({ source: 'website', status: 'pending' })
+                        .sort({ submittedAt: -1 })
+                        .skip(skip)
+                        .limit(parseInt(limit))
+                        .lean(),
+                    Confession.countDocuments({ source: 'website', status: 'pending' })
+                ]);
+                
+                return {
+                    confessions: confessions.map(conf => ({
+                        id: conf._id.toString(),
+                        content: conf.content,
+                        images: conf.images || [],
+                        source: conf.source,
+                        status: conf.status,
+                        timestamp: conf.submittedAt,
+                        submittedAt: conf.submittedAt
+                    })),
+                    total,
+                    page: parseInt(page),
+                    totalPages: Math.ceil(total / limit)
+                };
+            } 
+            // If status is rejected or approved, query ProcessedConfession (archive)
+            else {
+                 const query = { source: 'website', status: status };
+                 
+                 const [confessions, total] = await Promise.all([
+                    ProcessedConfession.find(query)
+                        .sort({ processedAt: -1 })
+                        .skip(skip)
+                        .limit(parseInt(limit))
+                        .lean(),
+                    ProcessedConfession.countDocuments(query)
+                ]);
 
-            return {
-                confessions: confessions.map(conf => ({
-                    id: conf._id.toString(),
-                    content: conf.content,
-                    images: conf.images || [],
-                    source: conf.source,
-                    status: conf.status,
-                    timestamp: conf.submittedAt,
-                    submittedAt: conf.submittedAt,
-                    esId: conf.esId,
-                    fbPostId: conf.fbPostId
-                })),
-                total,
-                page: parseInt(page),
-                totalPages: Math.ceil(total / limit)
-            };
+                return {
+                    confessions: confessions.map(conf => ({
+                        id: conf.confessionId, // Use original ID
+                        content: conf.content,
+                        images: [], // Processed currently doesn't store images array, might need update if we want to show them
+                        source: conf.source,
+                        status: conf.status,
+                        timestamp: conf.processedAt, // Show processed time
+                        submittedAt: conf.processedAt,
+                        esId: conf.esId,
+                        fbPostId: conf.fbPostId
+                    })),
+                    total,
+                    page: parseInt(page),
+                    totalPages: Math.ceil(total / limit)
+                };
+            }
         } catch (error) {
             console.error('Error fetching confessions from database:', error);
             throw error;
@@ -204,24 +230,32 @@ class DatabaseService {
     /**
      * Reject confession (mark as rejected, keep in DB for history)
      */
+    /**
+     * Reject confession: Archive to ProcessedConfession and DELETE from Confession
+     */
     async rejectConfession(id, rejectedBy = null) {
         try {
-            const confession = await Confession.findByIdAndUpdate(
-                id,
-                { 
-                    status: 'rejected',
-                    processedBy: rejectedBy,
-                    processedAt: new Date()
-                },
-                { new: true }
-            );
-
+            // 1. Find the original confession
+            const confession = await Confession.findById(id);
             if (!confession) {
                 throw new Error('Confession not found');
             }
 
-            console.log(`✅ Confession ${id} marked as rejected`);
-            return confession;
+            // 2. Create archive record
+            await ProcessedConfession.create({
+                confessionId: id,
+                source: 'website',
+                status: 'rejected',
+                processedBy: rejectedBy,
+                processedAt: new Date(),
+                content: confession.content
+            });
+
+            // 3. Delete from main collection
+            await Confession.findByIdAndDelete(id);
+
+            console.log(`✅ Confession ${id} rejected and migrated to archive.`);
+            return { success: true };
         } catch (error) {
             console.error('Error rejecting confession:', error);
             throw error;
