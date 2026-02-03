@@ -445,8 +445,9 @@ app.post('/api/admin/approve-all', authenticateToken, async (req, res) => {
 
         // Get confessions based on filter
         if (!sourceFilter || sourceFilter === 'all' || sourceFilter === 'website') {
-            websiteConfessions = await databaseService.getAllConfessions();
-            websiteConfessions = websiteConfessions.filter(c => c.status === 'pending');
+            // Fetch pending confessions directly (limit 1000 for bulk operations)
+            const websiteData = await databaseService.getAllConfessions('pending', 1, 1000);
+            websiteConfessions = websiteData.confessions;
         }
 
         if (!sourceFilter || sourceFilter === 'all' || sourceFilter === 'google_sheets') {
@@ -623,8 +624,9 @@ app.post('/api/admin/delete-all', authenticateToken, async (req, res) => {
 
         // Get confessions based on filter
         if (!sourceFilter || sourceFilter === 'all' || sourceFilter === 'website') {
-            websiteConfessions = await databaseService.getAllConfessions();
-            websiteConfessions = websiteConfessions.filter(c => c.status === statusFilter);
+            // Fetch confessions with large limit for bulk operations
+            const websiteData = await databaseService.getAllConfessions(statusFilter, 1, 1000);
+            websiteConfessions = websiteData.confessions;
         }
 
         if (!sourceFilter || sourceFilter === 'all' || sourceFilter === 'google_sheets') {
