@@ -418,7 +418,8 @@ app.post('/api/admin/approve/:id', authenticateToken, async (req, res) => {
         
         // Update status in appropriate source
         if (sourceType === 'website') {
-            await databaseService.updateConfessionStatus(id, 'approved', esId, fbPost.id, req.user.username);
+            // New logic: Archive and Delete
+            await databaseService.approveConfession(id, esId, fbPost.id, req.user.username);
         } else {
             // For Google Sheets: DELETE ROW after approval (clean up the sheet)
             await sheetsService.updateConfessionStatus(id, 'approved', esId, fbPost.id, true);
@@ -432,6 +433,20 @@ app.post('/api/admin/approve/:id', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Error approving confession:', error);
         res.status(500).json({ error: 'Failed to approve confession' });
+    }
+});
+
+// Cleanup existing approved confessions (Migration)
+app.post('/api/admin/cleanup-approved', authenticateToken, async (req, res) => {
+    try {
+        const count = await databaseService.cleanupApprovedConfessions();
+        res.json({ 
+            success: true, 
+            message: `Successfully migrated and cleaned up ${count} approved confessions from database.` 
+        });
+    } catch (error) {
+        console.error('Error during cleanup:', error);
+        res.status(500).json({ error: 'Failed to cleanup confessions' });
     }
 });
 
@@ -517,7 +532,8 @@ app.post('/api/admin/approve-all', authenticateToken, async (req, res) => {
 
                 // Update status
                 if (confession.sourceType === 'website') {
-                    await databaseService.updateConfessionStatus(confession.id, 'approved', esId, fbPost.id, req.user.username);
+                    // New logic: Archive and Delete
+                    await databaseService.approveConfession(confession.id, esId, fbPost.id, req.user.username);
                 } else {
                     // For Google Sheets: DELETE ROW after approval
                     await sheetsService.updateConfessionStatus(confession.id, 'approved', esId, fbPost.id, true);

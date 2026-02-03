@@ -1,4 +1,5 @@
 const Confession = require('../models/Confession');
+const ProcessedConfession = require('../models/ProcessedConfession');
 
 class DatabaseService {
     /**
@@ -263,20 +264,120 @@ class DatabaseService {
     /**
      * Get next ES_ID to use (latest + 1)
      */
+    /**
+     * Get next ES_ID to use (latest + 1)
+     * Checks both Confession (legacy/active) and ProcessedConfession (archived)
+     */
     async getLatestESId() {
         try {
-            const confession = await Confession.findOne({ 
+            // Check active confessions (legacy)
+            const activeConfession = await Confession.findOne({ 
                 status: 'approved',
                 esId: { $ne: null }
             })
             .sort({ esId: -1 })
             .lean();
 
+            // Check processed confessions (archived)
+            const processedConfession = await ProcessedConfession.findOne({
+                status: 'approved',
+                esId: { $ne: null }
+            })
+            .sort({ esId: -1 })
+            .lean();
+
+            const activeId = activeConfession ? activeConfession.esId : 0;
+            const processedId = processedConfession ? processedConfession.esId : 0;
+            
+            // Get the maximum ID from both sources
+            const maxId = Math.max(activeId, processedId);
+
             // Return NEXT ID to use (latest + 1)
-            return confession ? confession.esId + 1 : 2290;
+            // If no history found, start at 2290
+            return maxId > 0 ? maxId + 1 : 2290;
         } catch (error) {
             console.error('Error getting latest ES_ID:', error);
             return 2290;
+        }
+    }
+
+    /**
+     * Approve confession: Archive to ProcessedConfession and DELETE from Confession
+     */
+    async approveConfession(id, esId, fbPostId, approvedBy) {
+        try {
+            // 1. Find the original confession
+            const confession = await Confession.findById(id);
+            if (!confession) {
+                throw new Error('Confession not found');
+            }
+
+            // 2. Create archive record
+            await ProcessedConfession.create({
+                confessionId: id,
+                source: 'website',
+                status: 'approved',
+                esId: esId,
+                fbPostId: fbPostId,
+                processedBy: approvedBy,
+                processedAt: new Date(),
+                content: confession.content
+            });
+
+            // 3. Delete from main collection
+            await Confession.findByIdAndDelete(id);
+
+            console.log(`✅ Confession ${id} approved (#ES_${esId}) and migrated to archive.`);
+            return { success: true };
+        } catch (error) {
+            console.error('Error approving confession:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Cleanup: Migrate EXISTING approved confessions to ProcessedConfession
+     */
+    async cleanupApprovedConfessions() {
+        try {
+            console.log('🧹 Starting cleanup of approved confessions...');
+            
+            // Find all approved confessions in main DB
+            const approvedConfessions = await Confession.find({ status: 'approved' }).lean();
+            console.log(`📋 Found ${approvedConfessions.length} approved confessions to migrate.`);
+
+            let count = 0;
+            for (const conf of approvedConfessions) {
+                try {
+                    // Create archive
+                    await ProcessedConfession.findOneAndUpdate(
+                        { confessionId: conf._id.toString() },
+                        {
+                            confessionId: conf._id.toString(),
+                            source: 'website',
+                            status: 'approved',
+                            esId: conf.esId,
+                            fbPostId: conf.fbPostId,
+                            processedBy: conf.approvedBy || 'migration',
+                            processedAt: conf.approvedAt || new Date(),
+                            content: conf.content
+                        },
+                        { upsert: true, new: true }
+                    );
+
+                    // Delete original
+                    await Confession.findByIdAndDelete(conf._id);
+                    count++;
+                } catch (e) {
+                    console.error(`❌ Failed to migrate confession ${conf._id}:`, e.message);
+                }
+            }
+
+            console.log(`✅ Cleaned up ${count} approved confessions.`);
+            return count;
+        } catch (error) {
+            console.error('Error during cleanup:', error);
+            throw error;
         }
     }
 }
